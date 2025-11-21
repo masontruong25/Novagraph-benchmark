@@ -1,0 +1,18 @@
+{
+  "name": "novagraph-benchmark",
+  "version": "1.0.0",
+  "description": "Benchmark suite for NovaGraph web deployments",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "bench": "playwright test benchmarks/import-csv.spec.ts",
+    "bench:ui": "playwright test benchmarks/import-csv.spec.ts --ui",
+    "playwright-install": "playwright install chromium"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.56.1"
+  }
+}
