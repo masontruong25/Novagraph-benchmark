@@ -4,6 +4,10 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { buildCsvFixtures } from "../fixtures/csvFixtures";
+import {
+  discoverCsvDatasets,
+  type CsvDataset,
+} from "./utils/csvDatasets";
 
 type FrameMetrics = {
   durationMs: number;
@@ -13,8 +17,21 @@ type FrameMetrics = {
   maxFps: number;
 };
 
+type DatasetRun =
+  | { type: "file"; dataset: CsvDataset }
+  | { type: "generated"; label: string };
+
+const csvDatasets = await discoverCsvDatasets();
+const datasetRuns: DatasetRun[] =
+  csvDatasets.length > 0
+    ? csvDatasets.map((dataset) => ({ type: "file", dataset }))
+    : [{ type: "generated", label: "generated" }];
+
 test.describe("CSV Import Benchmark", () => {
-  test("imports CSV and records timings", async ({ page }, testInfo) => {
+  for (const run of datasetRuns) {
+    const label = run.type === "file" ? run.dataset.label : run.label;
+
+    test(`imports CSV dataset "${label}"`, async ({ page }, testInfo) => {
     const navigationStart = performance.now();
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("networkidle");
@@ -64,14 +81,19 @@ test.describe("CSV Import Benchmark", () => {
     const dialog = page.getByRole("dialog", { name: /Import File/i });
     await dialog.waitFor();
 
-    const databaseName = `benchmark-${Date.now()}`;
+    const databaseName = `benchmark-${label}-${Date.now()}`;
     await dialog
       .getByPlaceholder("Enter a name for the database...")
       .fill(databaseName);
 
-    const { nodesPayload, edgesPayload } = buildCsvFixtures();
-    await dialog.locator("input#nodes-csv").setInputFiles(nodesPayload);
-    await dialog.locator("input#edges-csv").setInputFiles(edgesPayload);
+    if (run.type === "file") {
+      await dialog.locator("input#nodes-csv").setInputFiles(run.dataset.nodesPath);
+      await dialog.locator("input#edges-csv").setInputFiles(run.dataset.edgesPath);
+    } else {
+      const { nodesPayload, edgesPayload } = buildCsvFixtures();
+      await dialog.locator("input#nodes-csv").setInputFiles(nodesPayload);
+      await dialog.locator("input#edges-csv").setInputFiles(edgesPayload);
+    }
 
     const fpsRecorder = page.evaluate(() => {
       return new Promise<FrameMetrics>((resolve) => {
@@ -132,6 +154,15 @@ test.describe("CSV Import Benchmark", () => {
 
     const report = {
       target: "https://novagraph-test.up.railway.app/app",
+      datasetLabel: label,
+      datasetType: run.type,
+      datasetFiles:
+        run.type === "file"
+          ? {
+              nodesPath: run.dataset.nodesPath,
+              edgesPath: run.dataset.edgesPath,
+            }
+          : null,
       databaseName,
       timestamps: {
         navigationStart,
@@ -146,7 +177,7 @@ test.describe("CSV Import Benchmark", () => {
     await fs.mkdir(resultsDir, { recursive: true });
     const filePath = path.join(
       resultsDir,
-      `csv-import-${Date.now()}-${testInfo.project.name}.json`
+      `csv-import-${label}-${Date.now()}-${testInfo.project.name}.json`
     );
     await fs.writeFile(filePath, JSON.stringify(report, null, 2), "utf-8");
 
@@ -164,5 +195,6 @@ test.describe("CSV Import Benchmark", () => {
     });
 
     expect(report.importDurationMs).toBeGreaterThan(0);
-  });
+    });
+  }
 });
