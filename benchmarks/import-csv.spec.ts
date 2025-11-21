@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
-import { performance } from "node:perf_hooks";
-import { promises as fs } from "node:fs";
-import path from "node:path";
+import { performance } from "perf_hooks";
+import { promises as fs } from "fs";
+import path from "path";
 
 import { buildCsvFixtures } from "../fixtures/csvFixtures";
 import {
@@ -33,18 +33,26 @@ test.describe("CSV Import Benchmark", () => {
 
     test(`imports CSV dataset "${label}"`, async ({ page }, testInfo) => {
     const navigationStart = performance.now();
-    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.goto("/app", { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("networkidle");
     const navigationEnded = performance.now();
 
     const navigationMetrics = await page.evaluate(() => {
-      const [nav] = performance.getEntriesByType("navigation") as
-        | PerformanceNavigationTiming[]
-        | [];
-      const firstPaint = performance
-        .getEntriesByName("first-paint")
-        .at(0)?.startTime;
-      const firstContentfulPaint = performance
+      type NavEntry = {
+        domContentLoadedEventEnd: number;
+        loadEventEnd: number;
+        startTime: number;
+        responseEnd: number;
+        requestStart: number;
+      };
+      type PaintEntry = { startTime: number };
+      const perf = performance as unknown as {
+        getEntriesByType(type: string): NavEntry[];
+        getEntriesByName(name: string): PaintEntry[];
+      };
+      const [nav] = perf.getEntriesByType("navigation") ?? [];
+      const firstPaint = perf.getEntriesByName("first-paint").at(0)?.startTime;
+      const firstContentfulPaint = perf
         .getEntriesByName("first-contentful-paint")
         .at(0)?.startTime;
       return nav
@@ -57,17 +65,6 @@ test.describe("CSV Import Benchmark", () => {
           }
         : null;
     });
-
-    // Landing page guard: click CTA if we aren't inside the app shell yet.
-    const goToAppButton = page.getByRole("button", { name: /go to novagraph/i }).first();
-    try {
-      await goToAppButton.waitFor({ state: "visible", timeout: 5_000 });
-      await goToAppButton.click();
-      await page.waitForURL("**/app/**", { timeout: 30_000 });
-      await page.waitForLoadState("networkidle");
-    } catch {
-      // Landing CTA not present, already inside the app shell.
-    }
 
     // Open import dialog through the database dropdown
     const databaseContainer = page.locator('span:has-text("Database")').first();
